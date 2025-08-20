@@ -58,6 +58,9 @@ class FacturaXMLtoPDF:
                 self.data['tipo_documento'] = "FACTURA"
             else:
                 self.data['tipo_documento'] = "BOLETA DE VENTA"
+
+            
+
             
             # Datos del emisor
             emisor = root.find('.//cac:AccountingSupplierParty/cac:Party', namespaces)
@@ -67,6 +70,8 @@ class FacturaXMLtoPDF:
                 self.data['emisor_direccion'] = self.get_text(emisor, './/cac:AddressLine/cbc:Line', namespaces)
                 self.data['emisor_distrito'] = self.get_text(emisor, './/cbc:District', namespaces)
                 self.data['emisor_departamento'] = self.get_text(emisor, './/cbc:CityName', namespaces)
+                self.data['correo_emisor'] = self.get_text(emisor, './/cbc:ElectronicMail', namespaces)
+
             
             # Datos del cliente
             cliente = root.find('.//cac:AccountingCustomerParty/cac:Party', namespaces)
@@ -124,7 +129,7 @@ class FacturaXMLtoPDF:
     def calculate_total_height(self):
         #"""Calcular la altura total necesaria para el PDF basado en el contenido real"""
         # Altura de secciones fijas
-        altura = 100  # Encabezado, emisor, cliente, totales, separadores
+        altura = 150  # Encabezado, emisor, cliente, totales, separadores
     
         # Altura de la imagen si existe
         try:
@@ -170,9 +175,9 @@ class FacturaXMLtoPDF:
     
         # AGREGAR IMAGEN EN EL ENCABEZADO CON MÁS OPCIONES
         image_path = "images/logo_manchester.png"
-        image_x = 10  # Posición X (centrada para 80mm: (80-60)/2 = 10)
+        image_x = 20  # Posición X (centrada para 80mm: (80-40)/2 = 20)
         image_y = 5   # Posición Y desde arriba
-        image_width = 60  # Ancho de la imagen (60mm para dejar márgenes)
+        image_width = 40  # Ancho de la imagen (60mm para dejar márgenes)
         
         try:
             if os.path.exists(image_path):
@@ -193,7 +198,7 @@ class FacturaXMLtoPDF:
         pdf.ln(5)  # Espacio normal si no hay imagen
         
         # Configuración de fuentes
-        pdf.set_font("Arial", '', 8)
+        pdf.set_font("Arial", 'B', 8)
 
         # Emisor nombre (centrado)
         emisor_nombre = self.data.get('emisor_nombre', 'N/A')
@@ -203,6 +208,7 @@ class FacturaXMLtoPDF:
             pdf.cell(0, 4, emisor_nombre, 0, 1, 'C')
 
         # RUC (centrado, sin texto "RUC:")
+        pdf.set_font("Arial", '', 8)
         pdf.cell(0, 4, self.data.get('emisor_ruc', 'N/A'), 0, 1, 'C')
 
         # Dirección completa (centrada, sin texto "Dirección:")
@@ -222,6 +228,8 @@ class FacturaXMLtoPDF:
         else:
             pdf.cell(0, 4, direccion_completa, 0, 1, 'C')
 
+        pdf.cell(0, 4, self.data.get('correo_emisor', 'N/A'), 0, 1, 'C')
+
         pdf.ln(2)
         
         # Línea separadora
@@ -232,7 +240,7 @@ class FacturaXMLtoPDF:
         pdf.set_font("Arial", 'B', 10)
         pdf.cell(0, 5, f"{self.data.get('tipo_documento', 'COMPROBANTE')} ELECTRÓNICA", 0, 1, 'C')
         pdf.set_font("Arial", '', 8)
-        pdf.cell(0, 4, f"NRO. {self.data.get('numero_factura', 'N/A')}", 0, 1, 'C')
+        pdf.cell(0, 4, self.data.get('numero_factura', 'N/A'), 0, 1, 'C')
         pdf.ln(2)
 
         # Línea separadora
@@ -283,9 +291,10 @@ class FacturaXMLtoPDF:
 
         # Línea separadora
         pdf.cell(0, 1, "", "T", 1)
-        pdf.set_font("Arial", '', 6)
+        pdf.ln(2)
+        pdf.set_font("Arial", '', 8)
         pdf.cell(0, 4, f"FORMA DE PAGO: {self.data.get('forma_pago')}", 0, 1)
-        
+        pdf.ln(2)
         # Encabezados de la tabla - MEJOR AJUSTE
         pdf.set_font("Arial", 'B', 5)
 
@@ -346,22 +355,28 @@ class FacturaXMLtoPDF:
         
         
         # Totales - FUENTE NORMAL
-        pdf.set_font("Arial", 'B', 8)
-        pdf.cell(50, 5, "TOTAL VENTA:", 0, 0)
+        pdf.set_font("Arial", '', 8)
+        pdf.cell(50, 5, "OP. GRAVADA:", 0, 0)
         pdf.cell(25, 5, self.format_currency(self.data.get('total_venta', '0.00')), 0, 1, 'R')
+
+        pdf.cell(50, 5, "OP. EXONERADA:", 0, 0)
+        pdf.cell(25, 5, self.format_currency(self.data.get('-', '0.00')), 0, 1, 'R')
+
+        pdf.cell(50, 5, "OP. INAFECTA:", 0, 0)
+        pdf.cell(25, 5, self.format_currency(self.data.get('-', '0.00')), 0, 1, 'R')
         
         pdf.cell(50, 5, "IGV:", 0, 0)
         pdf.cell(25, 5, self.format_currency(self.data.get('total_igv', '0.00')), 0, 1, 'R')
         
-        pdf.set_font("Arial", 'B', 9)
-        pdf.cell(50, 6, "TOTAL A PAGAR:", 0, 0)
+        pdf.set_font("Arial", 'B', 8)
+        pdf.cell(50, 6, "TOTAL:", 0, 0)
         pdf.cell(25, 6, self.format_currency(self.data.get('total_pagar', '0.00')), 0, 1, 'R')
-        pdf.set_font("Arial", '', 6)
-        pdf.cell(0, 4, self.data.get('monto_letras'), 0, 1)
+        pdf.set_font("Arial", '', 8)
+        pdf.cell(0, 4, f"SON: {self.data.get('monto_letras')}", 0, 1)
 
 
         pdf.ln(3)
-        pdf.set_font("Arial", '', 6)
+        pdf.set_font("Arial", '', 8)
         # Unir fecha y hora en un solo formato
         fecha = self.data.get('fecha_emision', 'N/A')
         hora = self.data.get('hora_emision', 'N/A')
@@ -376,7 +391,20 @@ class FacturaXMLtoPDF:
             if hora != 'N/A':
                 pdf.cell(0, 4, f"Hora: {hora}", 0, 1, 'C')
 
-        pdf.set_font("Arial", 'I', 6)
+        pdf.ln(3)
+
+        #IF IMAGES QR NUMBER == ID RUC_EMISOR 
+        image_path = "images/20550023556.png"
+        image_x = 20  # Posición X (centrada para 80mm: (80-40)/2 = 20)
+        image_y = 105   # Posición Y desde arriba
+        image_width = 50  # Ancho de la imagen (60mm para dejar márgenes)
+
+        pdf.ln(3)
+
+
+        pdf.cell(0, 4, "Representación impresa del comprobante de pago", 0, 1, 'C')
+
+        pdf.set_font("Arial", 'I', 8)
         pdf.cell(0, 4, "¡Gracias por su compra!", 0, 1, 'C')
         
         # Guardar PDF
