@@ -71,7 +71,6 @@ class FacturaXMLtoPDF:
                 self.data['emisor_distrito'] = self.get_text(emisor, './/cbc:District', namespaces)
                 self.data['emisor_departamento'] = self.get_text(emisor, './/cbc:CityName', namespaces)
                 self.data['correo_emisor'] = self.get_text(emisor, './/cbc:ElectronicMail', namespaces)
-
             
             # Datos del cliente
             cliente = root.find('.//cac:AccountingCustomerParty/cac:Party', namespaces)
@@ -81,6 +80,8 @@ class FacturaXMLtoPDF:
                 self.data['cliente_direccion'] = self.get_text(cliente, './/cac:AddressLine/cbc:Line', namespaces)
                 self.data['cliente_distrito'] = self.get_text(cliente, './/cbc:District', namespaces)
                 self.data['cliente_departamento'] = self.get_text(cliente, './/cbc:CityName', namespaces)
+
+            self.data['cliente_guia'] = self.get_text(root, './/cac:DespatchDocumentReference/cbc:ID', namespaces)
             
             # Totales
             self.data['total_venta'] = self.get_text(root, './/cac:TaxSubtotal/cbc:TaxableAmount', namespaces, '0.00')
@@ -127,38 +128,94 @@ class FacturaXMLtoPDF:
         return max(1, (len(texto) // caracteres_por_linea) + 1)
     
     def calculate_total_height(self):
-        #"""Calcular la altura total necesaria para el PDF basado en el contenido real"""
-        # Altura de secciones fijas
-        altura = 150  # Encabezado, emisor, cliente, totales, separadores
-    
-        # Altura de la imagen si existe
+        """Calcular la altura total necesaria para el PDF simulando el renderizado"""
+        # Crear PDF temporal para medición
+        pdf_temp = FPDF(orientation='P', unit='mm', format=(self.page_width, 300))
+        pdf_temp.set_margins(left=2, top=2, right=2)
+        pdf_temp.add_page()
+        pdf_temp.set_font("Arial", '', 8)
+        
+        # Variables para tracking de altura
+        y_position = 2  # Comenzar desde el margen superior
+        
+        # 1. Logo (si existe)
         try:
             if os.path.exists("images/logo_manchester.png"):
-                altura += 25
+                y_position += 25 + 2  # 25mm de imagen + 2mm de espacio
         except:
             pass
         
-        # Altura de los items
+        # 2. Datos del emisor
+        emisor_nombre = self.data.get('emisor_nombre', 'N/A')
+        y_position += pdf_temp.get_string_width(emisor_nombre) > 70 and 8 or 4
+        
+        ruc = self.data.get('emisor_ruc', 'N/A')
+        y_position += 4
+        
+        direccion = f"{self.data.get('emisor_direccion', '')} - {self.data.get('emisor_distrito', '')} - {self.data.get('emisor_departamento', '')}"
+        y_position += pdf_temp.get_string_width(direccion) > 70 and 8 or 4
+        
+        correo = self.data.get('correo_emisor', 'N/A')
+        y_position += pdf_temp.get_string_width(correo) > 70 and 8 or 4
+        
+        y_position += 6  # Espacio después de datos emisor
+        
+        # 3. Encabezado (tipo documento y número)
+        y_position += 10
+        
+        # 4. Datos del cliente
+        cliente_nombre = self.data.get('cliente_nombre', 'N/A')
+        y_position += pdf_temp.get_string_width(cliente_nombre) > 35 and 8 or 4
+        
+        cliente_dir = f"{self.data.get('cliente_direccion', '')} - {self.data.get('cliente_distrito', '')} - {self.data.get('cliente_departamento', '')}"
+        if cliente_dir.strip() not in ['', ' -  - ']:
+            y_position += pdf_temp.get_string_width(cliente_dir) > 35 and 8 or 4
+        
+        y_position += 6  # Espacio después de datos cliente
+        
+        # 5. Forma de pago
+        forma_pago = self.data.get('forma_pago', '')
+        y_position += 4 if forma_pago else 0
+        
+        y_position += 4  # Espacio extra
+        
+        # 6. Items de la factura (calculado de manera precisa)
+        pdf_temp.set_font("Arial", '', 6)
         for item in self.data.get('items', []):
             descripcion = str(item.get('descripcion', ''))
-            # Calcular líneas de descripción (aproximadamente 20 caracteres por línea)
-            lineas = max(1, (len(descripcion) // 20) + 1)
-            altura_item = lineas * 4  # 4mm por línea
-            altura += altura_item
+            # Calcular líneas exactas que ocupará la descripción
+            lineas = 1
+            if descripcion:
+                ancho_disponible = 20  # Ancho de la columna descripción
+                palabras = descripcion.split()
+                linea_actual = ""
+                
+                for palabra in palabras:
+                    prueba_linea = f"{linea_actual} {palabra}".strip()
+                    if pdf_temp.get_string_width(prueba_linea) <= ancho_disponible:
+                        linea_actual = prueba_linea
+                    else:
+                        lineas += 1
+                        linea_actual = palabra
+                
+            y_position += max(lineas, 1) * 4  # 4mm por línea
         
-        # Textos multilínea adicionales
-        textos_largos = [
-            self.data.get('emisor_nombre', ''),
-            self.data.get('cliente_nombre', ''),
-            self.data.get('monto_letras', '')
-        ]
+        y_position += 8  # Espacio después de items
         
-        for texto in textos_largos:
-            if texto and len(texto) > 35:
-                altura += 4  # línea adicional
+        # 7. Totales
+        y_position += 15
         
-        # Mínimo 150mm, máximo 800mm
-        return max(150, min(800, altura))
+        # 8. Monto en letras
+        monto_letras = self.data.get('monto_letras', '')
+        if monto_letras:
+            lineas_monto = max(1, int(pdf_temp.get_string_width(monto_letras) / 70) + 1)
+            y_position += lineas_monto * 4
+        
+        # 10. Imagen del pie
+        y_position += 50  # Espacio para imagen
+        
+        # Limitar entre mínimo y máximo razonable
+        return max(100, min(800, y_position))
 
 
     def generate_pdf(self):
@@ -209,7 +266,7 @@ class FacturaXMLtoPDF:
 
         # RUC (centrado, sin texto "RUC:")
         pdf.set_font("Arial", '', 8)
-        pdf.cell(0, 4, self.data.get('emisor_ruc', 'N/A'), 0, 1, 'C')
+        pdf.cell(0, 4, f"RUC: {self.data.get('emisor_ruc', 'N/A')}", 0, 1, 'C')
 
         # Dirección completa (centrada, sin texto "Dirección:")
         emisor_dir = self.data.get('emisor_direccion', '')
@@ -227,10 +284,10 @@ class FacturaXMLtoPDF:
             pdf.multi_cell(0, 4, direccion_completa, 0, 'C')
         else:
             pdf.cell(0, 4, direccion_completa, 0, 1, 'C')
-
-        pdf.cell(0, 4, self.data.get('correo_emisor', 'N/A'), 0, 1, 'C')
-
-        pdf.ln(2)
+        
+        pdf.ln(1)
+        pdf.cell(0, 4, self.data.get('correo_emisor', 'N/A'), 0, 1, 'C')        
+        pdf.ln(1)
         
         # Línea separadora
         pdf.cell(0, 1, "", "T", 1)
@@ -262,6 +319,8 @@ class FacturaXMLtoPDF:
         else:
             # Si no hay ID, no mostrar nada
             pass
+        
+        pdf.ln(1)
 
         cliente_nombre = self.data.get('cliente_nombre', 'N/A')
         if len(cliente_nombre) > 35:
@@ -269,10 +328,11 @@ class FacturaXMLtoPDF:
         else:
             pdf.cell(0, 4, f"CLIENTE: {cliente_nombre}", 0, 1)
 
+        pdf.ln(1)
         # Dirección del cliente - solo mostrar si hay datos válidos
-        cliente_dir = self.data.get('cliente_direccion', '').strip()
-        cliente_dis = self.data.get('cliente_distrito', '').strip()
-        cliente_dep = self.data.get('cliente_departamento', '').strip()
+        cliente_dir = self.data.get('cliente_direccion', '')
+        cliente_dis = self.data.get('cliente_distrito', '')
+        cliente_dep = self.data.get('cliente_departamento', '')
 
         # Filtrar valores no válidos
         valores_invalidos = ['', 'N/A', 'n/a', '-', '--', '---']
@@ -280,13 +340,23 @@ class FacturaXMLtoPDF:
                         if parte and parte not in valores_invalidos]
 
         if partes_validas:
+            # Construir la dirección completa
             direccion_completa = " - ".join(partes_validas)
             texto_direccion = f"DIRECCIÓN: {direccion_completa}"
             
+            # Verificar si necesita multi_cell
             if len(texto_direccion) > 35:
                 pdf.multi_cell(0, 4, texto_direccion, 0)
             else:
                 pdf.cell(0, 4, texto_direccion, 0, 1)
+
+        pdf.ln(1)
+
+        #GUIAS 
+
+        guia = self.data.get('cliente_guia', '')
+        if guia and guia != 'N/A' and guia.strip():
+            pdf.cell(0, 4, f"GUIA DE REMISIÓN: N° {guia}", 0, 1)
         pdf.ln(2)
 
         # Línea separadora
@@ -299,7 +369,7 @@ class FacturaXMLtoPDF:
         pdf.set_font("Arial", 'B', 5)
 
         # Definir anchuras de columnas (las mismas para encabezado y contenido)
-        anchuras = [16, 8, 6, 20, 10, 14]  # COD, CANT, UNID, DESC, V.UNIT, V.VENTA
+        anchuras = [6, 16, 8, 20, 10, 16]  # COD, CANT, UNID, DESC, V.UNIT, V.VENTA
         total_anchura = sum(anchuras)  # Debe ser 80mm
 
         # Encabezados de la tabla - CON LAS MISMAS ANCHURAS
@@ -311,7 +381,7 @@ class FacturaXMLtoPDF:
         pdf.ln(5)  # Salto de línea después del encabezado
 
         # Contenido de la tabla - MISMAS ANCHURAS
-        pdf.set_font("Arial", '', 6)
+        pdf.set_font("Arial", '', 7)
 
         for item in self.data.get('items', []):
             # Preparar datos
@@ -358,24 +428,26 @@ class FacturaXMLtoPDF:
         pdf.set_font("Arial", '', 8)
         pdf.cell(50, 5, "OP. GRAVADA:", 0, 0)
         pdf.cell(25, 5, self.format_currency(self.data.get('total_venta', '0.00')), 0, 1, 'R')
-
-        pdf.cell(50, 5, "OP. EXONERADA:", 0, 0)
-        pdf.cell(25, 5, self.format_currency(self.data.get('-', '0.00')), 0, 1, 'R')
-
-        pdf.cell(50, 5, "OP. INAFECTA:", 0, 0)
-        pdf.cell(25, 5, self.format_currency(self.data.get('-', '0.00')), 0, 1, 'R')
         
         pdf.cell(50, 5, "IGV:", 0, 0)
         pdf.cell(25, 5, self.format_currency(self.data.get('total_igv', '0.00')), 0, 1, 'R')
         
-        pdf.set_font("Arial", 'B', 8)
+        pdf.set_font("Arial", 'B', 10)
         pdf.cell(50, 6, "TOTAL:", 0, 0)
         pdf.cell(25, 6, self.format_currency(self.data.get('total_pagar', '0.00')), 0, 1, 'R')
+
+        pdf.ln(2)
+
         pdf.set_font("Arial", '', 8)
-        pdf.cell(0, 4, f"SON: {self.data.get('monto_letras')}", 0, 1)
+        monto_l = self.data.get('monto_letras')
+        if len(monto_l) > 35:
+                pdf.multi_cell(0, 4, f"SON: {monto_l}", 0)
+        else:
+                pdf.cell(0, 4, f"SON: {monto_l}", 0, 1)
 
 
-        pdf.ln(3)
+
+        pdf.ln(2)
         pdf.set_font("Arial", '', 8)
         # Unir fecha y hora en un solo formato
         fecha = self.data.get('fecha_emision', 'N/A')
@@ -391,26 +463,51 @@ class FacturaXMLtoPDF:
             if hora != 'N/A':
                 pdf.cell(0, 4, f"Hora: {hora}", 0, 1, 'C')
 
-        pdf.ln(3)
 
-        #IF IMAGES QR NUMBER == ID RUC_EMISOR 
-        image_path = "images/20550023556.png"
-        image_x = 20  # Posición X (centrada para 80mm: (80-40)/2 = 20)
-        image_y = 105   # Posición Y desde arriba
-        image_width = 50  # Ancho de la imagen (60mm para dejar márgenes)
+        # Obtener la posición Y actual después de todo el contenido
+        current_y = pdf.get_y()
+        
+        # Calcular posición Y para la imagen (dejando espacio para los textos finales)
+        image_y = current_y + 2  # 5mm de espacio después del contenido
+        
+        # Añadir la imagen en el pie del ticket según RUC del emisor
+        ruc_emisor = self.data.get('emisor_ruc', '')
+        if ruc_emisor and ruc_emisor != 'N/A':
+            image_path = f"images/{ruc_emisor}.png"
+            
+            # Verificar si existe la imagen del RUC específico
+            if not os.path.exists(image_path):
+                # Si no existe, usar una imagen por defecto
+                image_path = "images/qr_default.png"
+                
+            image_width = 50  # Ancho de la imagen
+            image_x = (self.page_width - image_width) / 2  # Centrar horizontalmente
 
-        pdf.ln(3)
+            try:
+                if os.path.exists(image_path):
+                    # Insertar imagen centrada en el pie
+                    pdf.image(image_path, x=image_x, y=pdf.get_y(), w=image_width)
+                    
+                    # Calcular altura de la imagen para ajustar el espacio
+                    image_height = image_width / 3  # Asumiendo relación de aspecto 3:1
+                    
+                    # Actualizar posición Y después de la imagen
+                    pdf.set_y(pdf.get_y() + image_height + 5)
+                else:
+                    print(f"Advertencia: No se encontró {image_path}")
+            except Exception as e:
+                print(f"Error al cargar imagen {image_path}: {e}")
+        else:
+            print("Advertencia: No hay RUC del emisor para cargar QR")
 
-
+        # Textos finales después de la imagen
         pdf.cell(0, 4, "Representación impresa del comprobante de pago", 0, 1, 'C')
-
         pdf.set_font("Arial", 'I', 8)
         pdf.cell(0, 4, "¡Gracias por su compra!", 0, 1, 'C')
         
         # Guardar PDF
         pdf.output(self.output_path)
         print(f"PDF generado: {self.output_path} (Alto calculado: {page_height}mm)")
-        #print(f"PDF generado: {self.output_path} (Alto: {page_height}mm)")
 
 def main():
     # Configurar rutas
